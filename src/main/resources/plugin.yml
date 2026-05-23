@@ -1,0 +1,14 @@
+name: EffectUtils
+version: 1.0.0
+main: nguyen.quoc.nam.EffectUtils
+api-version: '1.21'
+commands:
+  vanish:
+    description: Toggle, enable, or disable vanish state.
+    usage: /vanish <enable/disable> <player>
+    permission: effectutils.vanish
+    permission-message: You do not have permission to use this command!
+permissions:
+  effectutils.vanish:
+    description: Allows players to vanish.
+    default: op
