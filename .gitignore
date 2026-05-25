@@ -1,6 +1,10 @@
 # Compiled class file
 *.class
-
+.gradle/
+build/
+gradle/
+gradlew
+gradlew.bat
 # Log file
 *.log
 
