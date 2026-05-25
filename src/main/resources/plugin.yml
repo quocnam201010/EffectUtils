@@ -8,7 +8,15 @@ commands:
     usage: /vanish <enable/disable> <player>
     permission: effectutils.vanish
     permission-message: You do not have permission to use this command!
+  forget:
+    description: Hides player nameplate, removes them from the tab list, and prevents autocomplete.
+    usage: /forget <enable/disable> <player>
+    permission: effectutils.forget
+    permission-message: You do not have permission to use this command!
 permissions:
   effectutils.vanish:
     description: Allows players to vanish.
+    default: op
+  effectutils.forget:
+    description: Allows players to use /forget.
     default: op

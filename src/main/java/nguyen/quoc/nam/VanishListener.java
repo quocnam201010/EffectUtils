@@ -8,8 +8,16 @@ import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
+import org.bukkit.event.server.TabCompleteEvent;
+import com.destroystokyo.paper.event.server.AsyncTabCompleteEvent;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+
+import net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket;
+import org.bukkit.craftbukkit.entity.CraftPlayer;
 
 public final class VanishListener implements Listener {
 
@@ -21,15 +29,23 @@ public final class VanishListener implements Listener {
 
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
-        Player joiningPlayer = event.getPlayer();
+        Player player = event.getPlayer();
 
-        // Hide all currently vanished players from the joining player
+        // 1. Silence join message if player is forgotten
+        if (plugin.isForgotten(player.getUniqueId())) {
+            event.setJoinMessage(null);
+        }
+
+        // 2. Hide all currently vanished players from the joining player
         for (UUID vanishedId : plugin.getVanishedPlayers()) {
             Player vanishedPlayer = Bukkit.getPlayer(vanishedId);
             if (vanishedPlayer != null && vanishedPlayer.isOnline()) {
-                joiningPlayer.hidePlayer(plugin, vanishedPlayer);
+                player.hidePlayer(plugin, vanishedPlayer);
             }
         }
+
+        // 3. Apply tab list removal logic for forgotten players after 2 ticks
+        Bukkit.getScheduler().runTaskLater(plugin, () -> applyTabListRemoval(player), 2L);
     }
 
     @EventHandler
@@ -37,10 +53,13 @@ public final class VanishListener implements Listener {
         Player player = event.getPlayer();
         UUID uuid = player.getUniqueId();
 
-        // If the quitting player is vanished, remove them to clean up the state
+        // 1. Silence quit message if player is forgotten
+        if (plugin.isForgotten(uuid)) {
+            event.setQuitMessage(null);
+        }
+
+        // 2. If the quitting player is vanished, remove them to clean up the state
         if (plugin.isVanished(uuid)) {
-            // We don't need to call showPlayer because the player is leaving the server anyway,
-            // but we must clean up the in-memory set.
             plugin.setVanished(player, false);
         }
     }
@@ -60,20 +79,16 @@ public final class VanishListener implements Listener {
     public void onPlayerChangedWorld(PlayerChangedWorldEvent event) {
         Player player = event.getPlayer();
 
-        // Run in the next tick to ensure the world switch is fully completed on the server
+        // 1. Vanished player world change handling (1 tick delay is standard for Bukkit's hidePlayer)
         Bukkit.getScheduler().runTask(plugin, () -> {
             if (!player.isOnline()) {
                 return;
             }
 
-            // Case 1: The player who changed worlds is vanished.
-            // We need to hide them from everyone in the new world.
             if (plugin.isVanished(player.getUniqueId())) {
                 plugin.hidePlayerFromAll(player);
             }
 
-            // Case 2: A normal player changed worlds.
-            // We need to hide all vanished players from them.
             for (UUID vanishedId : plugin.getVanishedPlayers()) {
                 Player vanishedPlayer = Bukkit.getPlayer(vanishedId);
                 if (vanishedPlayer != null && vanishedPlayer.isOnline() && !vanishedPlayer.equals(player)) {
@@ -81,5 +96,66 @@ public final class VanishListener implements Listener {
                 }
             }
         });
+
+        // 2. Forgotten player world change handling (2 ticks delay for NMS packet processing safety)
+        Bukkit.getScheduler().runTaskLater(plugin, () -> applyTabListRemoval(player), 2L);
+    }
+
+    @EventHandler
+    public void onPlayerRespawn(PlayerRespawnEvent event) {
+        Player player = event.getPlayer();
+
+        // Forgotten player respawn handling (2 ticks delay for NMS packet processing safety)
+        Bukkit.getScheduler().runTaskLater(plugin, () -> applyTabListRemoval(player), 2L);
+    }
+
+    @EventHandler
+    public void onTabComplete(TabCompleteEvent event) {
+        List<String> completions = new ArrayList<>(event.getCompletions());
+        boolean removed = completions.removeIf(completion -> {
+            Player target = Bukkit.getPlayerExact(completion);
+            return target != null && plugin.isForgotten(target.getUniqueId());
+        });
+        if (removed) {
+            event.setCompletions(completions);
+        }
+    }
+
+    @EventHandler
+    public void onAsyncTabComplete(AsyncTabCompleteEvent event) {
+        List<String> completions = new ArrayList<>(event.getCompletions());
+        boolean removed = completions.removeIf(completion -> {
+            Player target = Bukkit.getPlayerExact(completion);
+            return target != null && plugin.isForgotten(target.getUniqueId());
+        });
+        if (removed) {
+            event.setCompletions(completions);
+        }
+    }
+
+    private void applyTabListRemoval(Player player) {
+        if (!player.isOnline()) {
+            return;
+        }
+
+        // Case 1: If the player themselves is forgotten, hide them from everyone else and enforce tag visibility
+        if (plugin.isForgotten(player.getUniqueId())) {
+            plugin.getForgetTeam().addEntry(player.getName());
+            plugin.hideFromTabListForEveryone(player);
+        }
+
+        // Case 2: Hide all other online forgotten players from this player's tab list
+        List<UUID> toRemove = new ArrayList<>();
+        for (UUID uuid : plugin.getForgottenPlayers()) {
+            Player forgotten = Bukkit.getPlayer(uuid);
+            if (forgotten != null && forgotten.isOnline() && !forgotten.equals(player)) {
+                toRemove.add(uuid);
+            }
+        }
+
+        if (!toRemove.isEmpty()) {
+            ClientboundPlayerInfoRemovePacket packet = new ClientboundPlayerInfoRemovePacket(toRemove);
+            ((CraftPlayer) player).getHandle().connection.send(packet);
+        }
     }
 }
