@@ -13,9 +13,9 @@ import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
-import net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket;
 import net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.GameType;
 import org.bukkit.craftbukkit.entity.CraftPlayer;
 
 public final class EffectUtils extends JavaPlugin {
@@ -136,7 +136,7 @@ public final class EffectUtils extends JavaPlugin {
             // Hide nameplate
             getForgetTeam().addEntry(player.getName());
 
-            // Remove from tab list for everyone
+            // Remove from tab list for everyone (using listed = false)
             hideFromTabListForEveryone(player);
             player.sendMessage(ChatColor.GREEN + "You are now forgotten!");
         } else {
@@ -146,7 +146,7 @@ public final class EffectUtils extends JavaPlugin {
                 // Show nameplate
                 getForgetTeam().removeEntry(player.getName());
 
-                // Add back to tab list for everyone
+                // Add back to tab list for everyone (using listed = true)
                 showInTabListForEveryone(player);
                 player.sendMessage(ChatColor.GREEN + "You are no longer forgotten.");
             }
@@ -164,7 +164,25 @@ public final class EffectUtils extends JavaPlugin {
     }
 
     public void hideFromTabListForEveryone(Player player) {
-        ClientboundPlayerInfoRemovePacket packet = new ClientboundPlayerInfoRemovePacket(List.of(player.getUniqueId()));
+        ServerPlayer serverPlayer = ((CraftPlayer) player).getHandle();
+        
+        ClientboundPlayerInfoUpdatePacket.Entry entry = new ClientboundPlayerInfoUpdatePacket.Entry(
+            player.getUniqueId(),
+            serverPlayer.getGameProfile(),
+            false, // listed = false
+            player.getPing(),
+            getNmsGameType(player.getGameMode()),
+            serverPlayer.getTabListDisplayName(),
+            true, // showHat
+            0, // listOrder
+            null // chatSession
+        );
+
+        ClientboundPlayerInfoUpdatePacket packet = new ClientboundPlayerInfoUpdatePacket(
+            EnumSet.of(ClientboundPlayerInfoUpdatePacket.Action.UPDATE_LISTED),
+            List.of(entry)
+        );
+
         for (Player other : Bukkit.getOnlinePlayers()) {
             if (!other.equals(player)) {
                 ((CraftPlayer) other).getHandle().connection.send(packet);
@@ -174,14 +192,38 @@ public final class EffectUtils extends JavaPlugin {
 
     public void showInTabListForEveryone(Player player) {
         ServerPlayer serverPlayer = ((CraftPlayer) player).getHandle();
-        ClientboundPlayerInfoUpdatePacket packet = new ClientboundPlayerInfoUpdatePacket(
-            EnumSet.of(ClientboundPlayerInfoUpdatePacket.Action.ADD_PLAYER, ClientboundPlayerInfoUpdatePacket.Action.UPDATE_LISTED),
-            List.of(serverPlayer)
+        
+        ClientboundPlayerInfoUpdatePacket.Entry entry = new ClientboundPlayerInfoUpdatePacket.Entry(
+            player.getUniqueId(),
+            serverPlayer.getGameProfile(),
+            true, // listed = true
+            player.getPing(),
+            getNmsGameType(player.getGameMode()),
+            serverPlayer.getTabListDisplayName(),
+            true, // showHat
+            0, // listOrder
+            null // chatSession
         );
+
+        ClientboundPlayerInfoUpdatePacket packet = new ClientboundPlayerInfoUpdatePacket(
+            EnumSet.of(ClientboundPlayerInfoUpdatePacket.Action.UPDATE_LISTED),
+            List.of(entry)
+        );
+
         for (Player other : Bukkit.getOnlinePlayers()) {
             if (!other.equals(player)) {
                 ((CraftPlayer) other).getHandle().connection.send(packet);
             }
+        }
+    }
+
+    public GameType getNmsGameType(org.bukkit.GameMode mode) {
+        switch (mode) {
+            case SURVIVAL: return GameType.SURVIVAL;
+            case CREATIVE: return GameType.CREATIVE;
+            case ADVENTURE: return GameType.ADVENTURE;
+            case SPECTATOR: return GameType.SPECTATOR;
+            default: return GameType.SURVIVAL;
         }
     }
 

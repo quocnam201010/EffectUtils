@@ -13,10 +13,13 @@ import org.bukkit.event.server.TabCompleteEvent;
 import com.destroystokyo.paper.event.server.AsyncTabCompleteEvent;
 
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.UUID;
 
-import net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket;
+import net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.GameType;
 import org.bukkit.craftbukkit.entity.CraftPlayer;
 
 public final class VanishListener implements Listener {
@@ -144,17 +147,31 @@ public final class VanishListener implements Listener {
             plugin.hideFromTabListForEveryone(player);
         }
 
-        // Case 2: Hide all other online forgotten players from this player's tab list
-        List<UUID> toRemove = new ArrayList<>();
+        // Case 2: Hide all other online forgotten players from this player's tab list (using listed = false)
+        List<ClientboundPlayerInfoUpdatePacket.Entry> entriesToRemove = new ArrayList<>();
         for (UUID uuid : plugin.getForgottenPlayers()) {
             Player forgotten = Bukkit.getPlayer(uuid);
             if (forgotten != null && forgotten.isOnline() && !forgotten.equals(player)) {
-                toRemove.add(uuid);
+                ServerPlayer nmsForgotten = ((CraftPlayer) forgotten).getHandle();
+                entriesToRemove.add(new ClientboundPlayerInfoUpdatePacket.Entry(
+                    uuid,
+                    nmsForgotten.getGameProfile(),
+                    false, // listed = false
+                    forgotten.getPing(),
+                    plugin.getNmsGameType(forgotten.getGameMode()),
+                    nmsForgotten.getTabListDisplayName(),
+                    true, // showHat
+                    0, // listOrder
+                    null // chatSession
+                ));
             }
         }
 
-        if (!toRemove.isEmpty()) {
-            ClientboundPlayerInfoRemovePacket packet = new ClientboundPlayerInfoRemovePacket(toRemove);
+        if (!entriesToRemove.isEmpty()) {
+            ClientboundPlayerInfoUpdatePacket packet = new ClientboundPlayerInfoUpdatePacket(
+                EnumSet.of(ClientboundPlayerInfoUpdatePacket.Action.UPDATE_LISTED),
+                entriesToRemove
+            );
             ((CraftPlayer) player).getHandle().connection.send(packet);
         }
     }
